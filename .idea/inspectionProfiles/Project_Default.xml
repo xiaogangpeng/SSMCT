@@ -1,0 +1,31 @@
+<component name="InspectionProjectProfileManager">
+  <profile version="1.0">
+    <option name="myName" value="Project Default" />
+    <inspection_tool class="PyPackageRequirementsInspection" enabled="true" level="WARNING" enabled_by_default="true">
+      <option name="ignoredPackages">
+        <value>
+          <list size="11">
+            <item index="0" class="java.lang.String" itemvalue="tqdm" />
+            <item index="1" class="java.lang.String" itemvalue="yacs" />
+            <item index="2" class="java.lang.String" itemvalue="thop" />
+            <item index="3" class="java.lang.String" itemvalue="tensorboard-plugin-wit" />
+            <item index="4" class="java.lang.String" itemvalue="threadpoolctl" />
+            <item index="5" class="java.lang.String" itemvalue="tensorboardX" />
+            <item index="6" class="java.lang.String" itemvalue="wcwidth" />
+            <item index="7" class="java.lang.String" itemvalue="typing-extensions" />
+            <item index="8" class="java.lang.String" itemvalue="tensorpack" />
+            <item index="9" class="java.lang.String" itemvalue="urllib3" />
+            <item index="10" class="java.lang.String" itemvalue="torchpack" />
+          </list>
+        </value>
+      </option>
+    </inspection_tool>
+    <inspection_tool class="PyUnresolvedReferencesInspection" enabled="true" level="WARNING" enabled_by_default="true">
+      <option name="ignoredIdentifiers">
+        <list>
+          <option value="torchlight.DictAction" />
+        </list>
+      </option>
+    </inspection_tool>
+  </profile>
+</component>
