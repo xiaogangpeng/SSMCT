@@ -75,7 +75,7 @@ class KeyframeEncoding(nn.Module):
         return x + self.kf_table.clone().detach()
 
 class Embedding(nn.Module):
-    def __init__(self, device, maxlen=50, d_model=256, n_segments=2):
+    def __init__(self, device, maxlen=50, d_model=256, n_segments=3):
         super(Embedding, self).__init__()
         self.pos_embed = nn.Embedding(maxlen, d_model).to(device)  # position embedding
         self.kf_embed = nn.Embedding(n_segments, d_model).to(device)  # segment(token type) embedding
@@ -89,9 +89,11 @@ class Embedding(nn.Module):
         pos_index = torch.arange(seq_len, dtype=torch.long)
         pos_index = pos_index.to(self.device)
         # pos = pos.unsqueeze(0).expand_as(x)  # [seq_len] -> [batch_size, seq_len]
-        kf_index = torch.zeros(n_position, dtype=torch.long)
+        kf_index = torch.zeros(seq_len, dtype=torch.long)
         kf_index = kf_index.to(self.device)
-        kf_index[n_past:-n_future] = 1
+        kf_index[n_past:n_past+n_trans] = 1
+        if(n_position < seq_len):
+            kf_index[n_position:] = 2
         embedding = x + self.pos_embed(pos_index) + self.kf_embed(kf_index)
         return self.norm(embedding)
 
@@ -135,7 +137,7 @@ class Encoder(nn.Module):
         # 输入卷积层
         self.inConv = nn.Conv1d(in_channels=input_dim, out_channels=d_model, kernel_size=3, padding = 1)  # position-wise
         # 混合嵌入层
-        self.embedding = Embedding(maxlen=seq_len, d_model=d_model, n_segments=2, device = device)
+        self.embedding = Embedding(maxlen=seq_len, d_model=d_model, n_segments=3, device = device)
         # self.position_enc = PositionalEncoding(d_model, n_position=seq_len)
         # self.kf_enc = KeyframeEncoding(d_hid=d_model, n_position=seq_len, n_past=n_past, n_future=n_future, kf_enc_value = kf_enc_value)
         # self.position_encoding = nn.Embedding.from_pretrained(   # 位置编码

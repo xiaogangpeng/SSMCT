@@ -236,14 +236,14 @@ def interpolate_local(lcl_r_mb, lcl_q_mb, n_past, n_future):
 
     # LERP Local Positions:
     n_trans = lcl_r_mb.shape[1] - (n_past + n_future)   # T-(n_past + n_future) 需要插值的帧数？？ 为什么不把它作为一个参数传进来？
-    interp_ws = torch.from_numpy(np.linspace(0.0, 1.0, num=n_trans + 2, dtype=np.float32))   # 在[0，1]区间中线性定出T（n_trans + 2）个点
+    interp_ws = np.linspace(0.0, 1.0, num=n_trans + 2, dtype=np.float32) # 在[0，1]区间中线性定出T（n_trans + 2）个点
     offset = end_lcl_r_mb - start_lcl_r_mb  # 最后一帧的偏移 - 第一帧的偏移
 
     const_trans = np.tile(start_lcl_r_mb, [1, n_trans + 2, 1, 1])    # B, n_trans + 2, 1, 3
     inter_lcl_r_mb = const_trans + (interp_ws)[None, :, None, None] * offset    # B,T,J,3 起始帧的值（const_trans）+（结束帧-起始帧的偏移）*[0，1]区间中的点（相当于乘上一个百分比）
 
     # SLERP Local Quats:
-    interp_ws = torch.from_numpy(np.linspace(0.0, 1.0, num=n_trans + 2, dtype=np.float32))
+    interp_ws = np.linspace(0.0, 1.0, num=n_trans + 2, dtype=np.float32)
     inter_lcl_q_mb = np.stack(
         [(quat_normalize(quat_slerp(quat_normalize(start_lcl_q_mb), quat_normalize(end_lcl_q_mb), w))) for w in
          interp_ws], axis=1)    # B,T,J,4

@@ -37,7 +37,7 @@ if __name__ == '__main__':
 
     lafan_data_train = LaFan1(opt['data']['data_dir'],
                               opt['data']['data_set'],
-                              seq_len = opt['model']['seq_length'],
+                              seq_len = 65,
                               offset = opt['data']['offset'],
                               train = True,
                               debug=opt['train']['debug'])

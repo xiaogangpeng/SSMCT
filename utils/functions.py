@@ -53,7 +53,7 @@ def write_to_bvhfile(data, filename, dataset):
     fout.write(('Frames: %d\n' % data.shape[0]))
     fout.write('Frame Time: 0.033333\n')
     # 旋转四元数变回欧拉角（三维）
-    pose_data = qeuler_np(data[:,3:].reshape(data.shape[0], -1, 4), order='zyx', use_gpu=False)
+    pose_data = qeuler_np(data[:, 66:].reshape(data.shape[0], -1, 4), order='zyx', use_gpu=False)
     # pose_data = np.concatenate([pose_data[:,:5], np.zeros_like(pose_data[:,0:1]),\
     #                             pose_data[:,5:9], np.zeros_like(pose_data[:,0:1]),\
     #                             pose_data[:,9:14], np.zeros_like(pose_data[:,0:1]),\

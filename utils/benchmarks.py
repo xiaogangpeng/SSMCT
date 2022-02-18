@@ -2,10 +2,19 @@ import pickle as pkl
 import numpy as np
 import zipfile
 import os
-# from . import extract
-# from . import utils
-np.set_printoptions(precision=3)
+
+import sys, os
+sys.path.insert(0, os.path.dirname(__file__))
+from utils.LaFan import LaFan1
+from torch.utils.data import DataLoader
+from tqdm import tqdm
+import yaml
+import time
+from utils.skeleton import Skeleton
+import torch
 import utils.utils_func as uf
+import utils.quaternion as qua
+np.set_printoptions(precision=3)
 
 def fast_npss(gt_seq, pred_seq):
     """
@@ -86,57 +95,62 @@ def benchmark_interpolation(X, Q, x_mean, x_std, offsets, parents, out_path=None
         batchsize = curr_x.shape[0] #  数据集长度B
 
         # Ground-truth positions/quats/eulers
-        gt_local_quats = curr_q     # 局部旋转四元数真实值 B, curr_window, J, 4
-        print(f"curr_x :  {curr_x .shape}")
-        gt_roots = curr_x[:, :, 0:1, :] # 根关节位移真实值 B, curr_window, 1, 3
-        print(f"gt_roots:  {gt_roots.shape}")
-        gt_offsets = np.tile(offsets, [batchsize, curr_window, 1, 1])   # 子关节的偏移量真实值 B, curr_window, J, 3
-        # 问题：gt_local_poses与curr_x的区别？？
-        # gt_local_poses = np.concatenate([gt_roots, gt_offsets], axis=2) # 所有关节的局部位置真实值 B, curr_window, J, 3
-        gt_local_poses = gt_roots + gt_offsets
-        trans_gt_local_poses = gt_local_poses[:, n_past: -n_future, ...]    # 过渡区间的局部位置真实值  B, n_trans, J, 3
-        trans_gt_local_quats = gt_local_quats[:, n_past: -n_future, ...]    # 过渡区间的局部旋转真实值  B, n_trans, J, 4
-        # Local to global with Forward Kinematics (FK) 局部位置和旋转转换为全局位置和旋转
-        trans_gt_global_quats, trans_gt_global_poses = uf.quat_fk(trans_gt_local_quats, trans_gt_local_poses, parents)
-        # trans_gt_global_poses = trans_gt_global_poses.reshape((trans_gt_global_poses.shape[0], -1, n_joints * 3)).transpose([0, 2, 1])
+        gt_glbl_quats = curr_q     # 全局旋转四元数真实值 B, curr_window, J, 4
+        gt_glbl_poses = curr_x     # 所有关节的全局位置真实值 B, curr_window, J, 3
+
+        trans_gt_glbl_poses = gt_glbl_poses[:, n_past: -n_future, ...]  # 过渡区间的全局位置真实值  B, n_trans, J, 3
+        trans_gt_glbl_quats = torch.from_numpy(gt_glbl_quats[:, n_past: -n_future, ...])   # 过渡区间的全局旋转真实值  B, n_trans, J, 4
+        # # Local to global with Forward Kinematics (FK) 局部位置和旋转转换为全局位置和旋转
+        # trans_gt_global_quats, trans_gt_global_poses = uf.quat_fk(trans_gt_local_quats, trans_gt_local_poses, parents)
+
         # Normalize 全局位置 正则化处理
-        # trans_gt_global_poses = (trans_gt_global_poses - x_mean) / x_std
+        trans_gt_glbl_poses = (torch.from_numpy(trans_gt_glbl_poses) - x_mean_n) / x_std_n
 
         # Zero-velocity pos/quats
-        zerov_trans_local_quats, zerov_trans_local_poses = np.zeros_like(trans_gt_local_quats), np.zeros_like(trans_gt_local_poses)
-        zerov_trans_local_quats[:, :, :, :] = gt_local_quats[:, n_past - 1:n_past, :, :]
-        zerov_trans_local_poses[:, :, :, :] = gt_local_poses[:, n_past - 1:n_past, :, :]
-        # To global
-        trans_zerov_global_quats, trans_zerov_global_poses = uf.quat_fk(zerov_trans_local_quats, zerov_trans_local_poses, parents)
-        trans_zerov_global_poses = trans_zerov_global_poses.reshape((trans_zerov_global_poses.shape[0], -1, n_joints * 3)).transpose([0, 2, 1])
+        trans_gt_glbl_poses_ = trans_gt_glbl_poses.numpy()
+
+        zerov_trans_glbl_quats, zerov_trans_glbl_poses = np.zeros_like(trans_gt_glbl_quats), np.zeros_like(trans_gt_glbl_poses_)
+        zerov_trans_glbl_quats[:, :, :, :] = gt_glbl_quats[:, n_past - 1:n_past, :, :]
+        zerov_trans_glbl_quats = torch.from_numpy(zerov_trans_glbl_quats)
+        zerov_trans_glbl_poses[:, :, :, :] = gt_glbl_poses[:, n_past - 1:n_past, :, :]
         # Normalize
-        # trans_zerov_global_poses = (trans_zerov_global_poses - x_mean) / x_std
+        trans_zerov_glbl_poses = (torch.from_numpy(zerov_trans_glbl_poses) - x_mean_n) / x_std_n
 
         # Interpolation pos/quats
-        r, q = curr_x[:, :, 0:1, :], curr_q    # r: L,curr_window,1,3       q:当前考虑的局部旋转四元数 B, curr_window, J, 4
-        inter_root, inter_local_quats = uf.interpolate_local(r, q, n_past, n_future)  # inter_root: B, n_trans + 2, 1, 3   inter_local_quats: B, n_trans + 2, J, 4
-        trans_inter_root = inter_root[:, 1:-1, :, :]    # 根节点位移 插值的中间帧 B, n_trans, 1, 3
-        trans_inter_offsets = np.tile(offsets, [batchsize, n_trans, 1, 1]) # 子关节的偏移量真实值 B, n_trans, J, 3
-        trans_inter_local_poses = np.concatenate([trans_inter_root, trans_inter_offsets], axis=2)   # 所有关节的局部位置插值值 B, n_trans, J, 3
-        inter_local_quats = inter_local_quats[:, 1:-1, :, :]  # 旋转四元数 插值的中间帧 B, n_trans, J, 4
+        r, q = curr_x[:, :, :, :], curr_q    # r: L,curr_window,1,3       q:当前考虑的局部旋转四元数 B, curr_window, J, 4
+        inter_pos, inter_glbl_quats = uf.interpolate_local(r, q, n_past, n_future)  # inter_root: B, n_trans + 2, 1, 3   inter_local_quats: B, n_trans + 2, J, 4
+        # trans_inter_root = torch.from_numpy(inter_root[:, 1:-1, :, :].reshape(inter_root.shape[0], -1, 3)).to(torch.float32)     # 根节点位移 插值的中间帧 B, n_trans, 1, 3
+        # trans_inter_glbl_quats = torch.from_numpy(inter_glbl_quats[:, 1:-1, :, :]).to(torch.float32)  #旋转四元数 插值的中间帧 B, n_trans, J, 4
+        # trans_inter_offsets = np.tile(offsets, [batchsize, n_trans, 1, 1]) # 子关节的偏移量真实值 B, n_trans, J, 3
+        trans_inter_glbl_quats = inter_glbl_quats[:, 1:-1, :, :]
+        trans_inter_glbl_poses = inter_pos[:, 1:-1, :, :]
+        # trans_inter_glbl_poses = skeleton_mocap.forward_kinematics(trans_inter_glbl_quats.to(device), trans_inter_root.to(device))  # 所有关节的局部位置插值值 B, n_trans, J, 3
+
         # To global
-        trans_interp_global_quats, trans_interp_global_poses = uf.quat_fk(inter_local_quats, trans_inter_local_poses, parents)   # B, n_trans, J, 4   B, n_trans, J, 3
-        trans_interp_global_poses = trans_interp_global_poses.reshape((trans_interp_global_poses.shape[0], -1, n_joints * 3)).transpose([0, 2, 1])
-        # Normalize
-        # trans_interp_global_poses = (trans_interp_global_poses - x_mean) / x_std
+        # trans_inter_glbl_poses = trans_inter_glbl_poses.reshape((trans_inter_glbl_poses.shape[0], -1, n_joints * 3)).transpose([0, 2, 1])
+        # # # Normalize
+        trans_inter_glbl_poses = (torch.from_numpy(trans_inter_glbl_poses) - x_mean_n) / x_std_n
+
+        # print(f" trans_gt_glbl_quats :{type(trans_gt_glbl_quats)}")
+        # print(f"zerov_trans_glbl_quats :{type(zerov_trans_glbl_quats)}")
+        # print(f"zerov_inter_glbl_quats :{type(trans_inter_glbl_quats)}")
+        # print(f"trans_zerov_glbl_poses :{type(trans_zerov_glbl_poses)}")
+        # print(f"trans_inter_glbl_poses :{type(trans_inter_glbl_poses)}")
+        # print(f"trans_zerov_glbl_poses :{type(trans_zerov_glbl_poses)}")
+        # print(f"trans_inter_glbl_quats :{type(trans_inter_glbl_quats)}")
 
         # 与baseline的比较实验 评估指标： L2Q、L2P和NPSS
         # Local quaternion loss L2Q
-        res[('zerov_quat_loss', n_trans)] = np.mean(np.sqrt(np.sum((trans_zerov_global_quats - trans_gt_global_quats) ** 2.0, axis=(2, 3))))
-        res[('interp_quat_loss', n_trans)] = np.mean(np.sqrt(np.sum((trans_interp_global_quats - trans_gt_global_quats) ** 2.0, axis=(2, 3))))  # 插值的全局旋转四元数 - 真实的全局旋转四元数 二范数 最后求均值
+        res[('zerov_quat_loss', n_trans)] = np.mean(np.sqrt(np.sum((zerov_trans_glbl_quats.numpy() - trans_gt_glbl_quats.numpy()) ** 2.0, axis=(2, 3))))
+        res[('interp_quat_loss', n_trans)] = np.mean(np.sqrt(np.sum((trans_inter_glbl_quats - trans_gt_glbl_quats.numpy()) ** 2.0, axis=(2, 3))))  # 插值的全局旋转四元数 - 真实的全局旋转四元数 二范数 最后求均值
 
         # Global positions loss L2P
-        res[('zerov_pos_loss', n_trans)] = np.mean(np.sqrt(np.sum((trans_zerov_global_poses - trans_gt_global_poses)**2.0, axis=1)))
-        res[('interp_pos_loss', n_trans)] = np.mean(np.sqrt(np.sum((trans_interp_global_poses - trans_gt_global_poses)**2.0, axis=1)))  # 插值的全局位置 - 真实的全局位置 二范数
+        res[('zerov_pos_loss', n_trans)] = np.mean(np.sqrt(np.sum((trans_zerov_glbl_poses.numpy() - trans_gt_glbl_poses.numpy())**2.0, axis=(2, 3))))
+        res[('interp_pos_loss', n_trans)] = np.mean(np.sqrt(np.sum((trans_inter_glbl_poses.numpy() - trans_gt_glbl_poses.numpy())**2.0, axis=(2, 3))))  # 插值的全局位置 - 真实的全局位置 二范数
 
         # NPSS loss on global quaternions
-        res[('zerov_npss_loss', n_trans)] = fast_npss(flatjoints(trans_gt_global_quats), flatjoints(trans_zerov_global_quats))      # 保持tensor的前两个维度不动，序列化剩余的维度
-        res[('interp_npss_loss', n_trans)] = fast_npss(flatjoints(trans_gt_global_quats), flatjoints(trans_interp_global_quats))
+        res[('zerov_npss_loss', n_trans)] = fast_npss(flatjoints(trans_gt_glbl_quats), flatjoints(zerov_trans_glbl_quats))      # 保持tensor的前两个维度不动，序列化剩余的维度
+        res[('interp_npss_loss', n_trans)] = fast_npss(flatjoints(trans_gt_glbl_quats), flatjoints(trans_inter_glbl_quats))
 
     print()
     avg_zerov_quat_losses  = [res[('zerov_quat_loss', n)] for n in trans_lengths]
@@ -185,8 +199,46 @@ def benchmark_interpolation(X, Q, x_mean, x_std, offsets, parents, out_path=None
 
     return res
 
-def L2Q(gt_seq, pred_seq):
 
 
+if __name__ == '__main__':
+    opt = yaml.load(open('../config/train_config_lafan.yaml', 'r').read(), Loader=yaml.FullLoader)
+    stamp = time.strftime("%Y-%m-%d-%H_%M_%S", time.localtime(time.time()))
+    stamp = stamp + '-' + opt['train']['method']
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    if opt['train']['debug']:
+        stamp = 'debug'
 
-    return
+    lafan_data_train = LaFan1(opt['data']['data_dir'],
+                              opt['data']['data_set'],
+                              seq_len = 65,
+                              offset = opt['data']['offset'],
+                              train = False,
+                              debug= False)
+    # print("train_positions.shape", lafan_data_train.data['X'].shape)
+    # print("train_rotations.shape", lafan_data_train.data['Q'].shape)
+    lafan_loader_train = DataLoader(lafan_data_train,
+                                    batch_size=opt['train']['batch_size'],
+                                    shuffle=True,
+                                    num_workers=opt['data']['num_workers'])
+
+    x_mean = lafan_data_train.x_mean
+    x_std = lafan_data_train.x_std
+    x_mean_n = lafan_data_train.x_mean.view(1, 1, opt['model']['num_joints'], 3)
+    x_std_n = lafan_data_train.x_std.view(1, 1, opt['model']['num_joints'], 3)
+    skeleton_mocap = Skeleton(offsets=opt['data']['offsets'], parents=opt['data']['parents'])
+    skeleton_mocap.to(device)
+
+    if opt['data']['data_set'] == "lafan":
+        skeleton_mocap.remove_joints(opt['data']['joints_to_remove'])
+
+    offsets = skeleton_mocap.offsets().detach().cpu().numpy()
+    parents = skeleton_mocap.parents()
+    # for batch_i, batch_data in tqdm(enumerate(lafan_loader_train)):
+    #         positions = batch_data['X']  # B, F, J, 3
+    #         rotations = batch_data['local_q']
+    benchmark_interpolation(X=lafan_data_train.data['X'], Q= lafan_data_train.data['Q'], x_mean=x_mean, x_std = x_std,
+                                        offsets=offsets,parents=opt['data']['parents'],
+                                        n_future=opt['model']['n_future'], n_past=opt['model']['n_past'])
+
+

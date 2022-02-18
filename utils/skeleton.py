@@ -78,7 +78,7 @@ class Skeleton:
         rotations_world = []
 
         expanded_offsets = self._offsets.expand(rotations.shape[0], rotations.shape[1],
-                                                   self._offsets.shape[0], self._offsets.shape[1])
+                                                   self._offsets.shape[0], self._offsets.shape[1]).detach().cpu()
 
         # Parallelize along the batch and time dimensions
         for i in range(self._offsets.shape[0]):
@@ -93,6 +93,7 @@ class Skeleton:
                 else:
                     # This joint is a terminal node -> it would be useless to compute the transformation
                     rotations_world.append(None)
+
 
         return torch.stack(positions_world, dim=3).permute(0, 1, 3, 2)
     

@@ -11,10 +11,10 @@ model:
     d_inner: 512
     n_past: 10
     n_future: 10
-    n_trans: 30
+    n_trans: 5
 
 data:
-    data_dir: '/home/ericpeng/DeepLearning/Projects/SSMCT_ReCon/BVH'    # lafan数据集文件放到这个目录下面
+    data_dir: '/home/ericpeng/DeepLearning/Datasets/lafan'    # lafan数据集文件放到这个目录下面
     data_set: 'lafan'
     offsets: [
        [-42.198200,91.614723,-40.067841],
@@ -59,23 +59,24 @@ data:
     num_workers: 4
     offset: 20
 train:
-    batch_size: 128
+    batch_size: 600
     lr: 0.0001
     dropout: 0.1
     seed: 1234
 
     save_per_epochs: 10
 
-    loss_pose_weight: 0.01
+    loss_root_weight: 1.0
+    loss_fk_weight: 0.01
     loss_quat_weight: 1.0
     loss_position_weight: 1.0
 
-    num_epoch: 10000
-    weight_decay: 0.00001
+    num_epoch: 5000
+    weight_decay: 0.75
 
     debug: False
     cuda: True
     method: ''
     output_dir: 'checkpoints/train_lafan'
 
-    picture_name: 'train_loss_02'
+    picture_name: 'train_loss'

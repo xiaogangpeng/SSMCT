@@ -50,6 +50,10 @@ class LaFan1(Dataset):
         # Global positions stats:
         x_mean = np.mean(x_glbl.reshape([x_glbl.shape[0], x_glbl.shape[1], -1]).transpose([0, 2, 1]), axis=(0, 2), keepdims=True)
         x_std = np.std(x_glbl.reshape([x_glbl.shape[0], x_glbl.shape[1], -1]).transpose([0, 2, 1]), axis=(0, 2), keepdims=True)
+        x_mean_local = np.mean(X.reshape([x_glbl.shape[0], x_glbl.shape[1], -1]).transpose([0, 2, 1]), axis=(0, 2), keepdims=True)
+        x_std_local = np.std(X.reshape([x_glbl.shape[0], x_glbl.shape[1], -1]).transpose([0, 2, 1]), axis=(0, 2), keepdims=True)
+        self.x_mean_local = torch.from_numpy(x_mean_local)
+        self.x_std_local = torch.from_numpy(x_std_local)
         self.x_mean = torch.from_numpy(x_mean)
         self.x_std = torch.from_numpy(x_std)
 
@@ -57,6 +61,7 @@ class LaFan1(Dataset):
         # The following features are inputs:
         # 1. local quaternion vector (J * 4d)   局部旋转四元数向量
         input_['local_q'] = Q   # [B, F, J, 4]
+        input_['local_x'] = X
         
         # # 2. global root velocity vector (3d)
         # input_['root_v'] = x_glbl[:,1:,0,:] - x_glbl[:,:-1,0,:]
@@ -78,6 +83,7 @@ class LaFan1(Dataset):
 
         # 8. X   全局位移  B, F, J, 3
         input_['X'] = x_glbl[:,:,:,:]   #
+        input_['Q'] = q_glbl[:, :, :, :]
 
         print('Nb of sequences : {}\n'.format(X.shape[0]))
 
@@ -90,12 +96,18 @@ class LaFan1(Dataset):
 
         data = np.load(bvh_path)
         input_ = {}
-        input_['local_q'] = data['Q']  # local quaternion vector  [B, F, J, 4]
+        input_['local_x'] = data['local_x']
+        input_['local_q'] = data['local_q']  # local quaternion vector  [B, F, J, 4]
         input_['X'] = data['X']  # global positions [B, F, J, 3]
+        input_['Q'] = data['Q']
         self.x_mean = data['x_mean']
         self.x_std = data['x_std']
+        self.x_mean_local = data['x_mean_local']
+        self.x_std_local = data['x_std_local']
         self.x_mean = torch.from_numpy(self.x_mean)
         self.x_std = torch.from_numpy(self.x_std)
+        self.x_mean_local = torch.from_numpy(self.x_mean_local)
+        self.x_std_local = torch.from_numpy(self.x_std_local)
         if self.train == False:
             input_['style'] = data['style']
         return input_
@@ -110,6 +122,7 @@ class LaFan1(Dataset):
         else:
             idx_ = idx
         sample = {}
+        sample['local_x'] = self.data['local_x'][idx_].astype(np.float32)
         sample['local_q'] = self.data['local_q'][idx_].astype(np.float32)
         # sample['root_v'] = self.data['root_v'][idx_].astype(np.float32)
         # sample['contact'] = self.data['contact'][idx_].astype(np.float32)
@@ -118,6 +131,7 @@ class LaFan1(Dataset):
         # sample['target'] = self.data['target'][idx_].astype(np.float32)
         # sample['root_p'] = self.data['root_p'][idx_].astype(np.float32)
         sample['X'] = self.data['X'][idx_].astype(np.float32)
+        sample['Q'] = self.data['Q'][idx_].astype(np.float32)
         if self.dataset == "mocap" and self.train == False:
             sample['style'] = self.data['style'][idx_].astype(np.str_)
         
