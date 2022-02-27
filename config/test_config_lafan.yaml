@@ -74,7 +74,7 @@ test:
     debug: False
     cuda: True
 
-    model_dir: './checkpoints/train_lafan/epoch_3190.pt'
+    model_dir: './checkpoints/train_lafan/epoch_270.pt'
     output_dir1: './outputs/test_05_3000_lafan'
     output_dir2: './outputs/test_15_3000_lafan'
     output_dir3: './outputs/test_30_3000_lafan'

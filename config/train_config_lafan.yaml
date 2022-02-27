@@ -11,7 +11,7 @@ model:
     d_inner: 512
     n_past: 10
     n_future: 10
-    n_trans: 5
+    n_trans: 30
 
 data:
     data_dir: '/home/ericpeng/DeepLearning/Datasets/lafan'    # lafan数据集文件放到这个目录下面
@@ -59,7 +59,7 @@ data:
     num_workers: 4
     offset: 20
 train:
-    batch_size: 600
+    batch_size: 10
     lr: 0.0001
     dropout: 0.1
     seed: 1234
@@ -68,10 +68,11 @@ train:
 
     loss_root_weight: 1.0
     loss_fk_weight: 0.01
-    loss_quat_weight: 1.0
-    loss_position_weight: 1.0
+    loss_ik_weight: 0.01
+    loss_quat_weight: 10
+    loss_position_weight: 0.1
 
-    num_epoch: 5000
+    num_epoch: 1000
     weight_decay: 0.75
 
     debug: False
@@ -80,3 +81,6 @@ train:
     output_dir: 'checkpoints/train_lafan'
 
     picture_name: 'train_loss'
+
+test:
+    model_dir: './checkpoints/train_lafan/epoch_510.pt'

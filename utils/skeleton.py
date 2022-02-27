@@ -2,6 +2,7 @@ import os
 import numpy as np
 import sys
 import torch
+import torch.nn as nn
 sys.path.insert(0, os.path.dirname(__file__))
 from utils.quaternion import qmul_np, qmul, qrot
 from torch.utils.data import Dataset, DataLoader
@@ -116,67 +117,105 @@ class Skeleton:
             if parent != -1:
                 self._children[parent].append(i)
 
-if __name__=="__main__":
-    skeleton_mocap = Skeleton(offsets=[
-       [-42.198200,91.614723,-40.067841],
-       [ 0.103456,1.857829,10.548506],
-       [43.499992,-0.000038,-0.000002],
-       [42.372192,0.000015,-0.000007],
-       [ 17.299999,-0.000002,0.000003],
-       [0.000000,0.000000,0.000000],
+    def get_bone_length_weight(self):
+        bone_length = []
+        for i, parent in enumerate(self._parents):
+            if parent == -1:
+                bone_length.append(1)
+            else:
+                bone_length.append(
+                    torch.linalg.norm(self._offsets[i : i + 1], ord="fro").item()
+                )
+        return torch.Tensor(bone_length)
 
-       [0.103457,1.857829,-10.548503],
-       [43.500042,-0.000027,0.000008],
-       [42.372257,-0.000008,0.000014],
-       [17.299992,-0.000005,0.000004],
-       [0.000000,0.000000,0.000000],
+    def forward_kinematics_with_rotation(self, rotations, root_positions):
+        """
+        Perform forward kinematics using the given trajectory and local rotations.
+        Arguments (where N = batch size, L = sequence length, J = number of joints):
+         -- rotations: (N, L, J, 4) tensor of unit quaternions describing the local rotations of each joint.
+         -- root_positions: (N, L, 3) tensor describing the root joint positions.
+        """
+        assert len(rotations.shape) == 4
+        assert rotations.shape[-1] == 4
 
-       [6.901968,-2.603733,-0.000001],
-       [12.588099,0.000002,0.000000],
-       [12.343206,0.000000,-0.000001],
-       [25.832886,-0.000004,0.000003],
-       [11.766620,0.000005,-0.000001],
-       [0.000000,0.000000,0.000000],
+        positions_world = []
+        rotations_world = []
 
-       [19.745899,-1.480370,6.000108],
-       [11.284125,-0.000009,-0.000018],
-       [33.000050,0.000004,0.000032],
-       [25.200008,0.000015,0.000008],
-       [0.000000,0.000000,0.000000],
+        expanded_offsets = self._offsets.expand(
+            rotations.shape[0],
+            rotations.shape[1],
+            self._offsets.shape[0],
+            self._offsets.shape[1],
+        )
 
-       [19.746099,-1.480375,-6.000073],
-       [11.284138,-0.000015,-0.000012],
-       [33.000092,0.000017,0.000013],
-       [25.199780,0.000135,0.000422],
-       [0.000000,0.000000,0.000000]
-    ],
-    parents=[-1,  0,  1,  2,  3,  4,\
-              0,  6,  7,  8,  9,\
-              0, 11, 12, 13, 14, 15,\
-              13, 17, 18, 19, 20, 
-              13, 22, 23, 24, 25])
+        # Parallelize along the batch and time dimensions
+        for i in range(self._offsets.shape[0]):
+            if self._parents[i] == -1:
+                positions_world.append(root_positions)
+                rotations_world.append(rotations[:, :, 0])
+            else:
+                positions_world.append(
+                    qrot(rotations_world[self._parents[i]], expanded_offsets[:, :, i])
+                    + positions_world[self._parents[i]]
+                )
+                if self._has_children[i]:
+                    rotations_world.append(
+                        qmul(rotations_world[self._parents[i]], rotations[:, :, i])
+                    )
+                else:
+                    # This joint is a terminal node -> it would be useless to compute the transformation
+                    rotations_world.append(
+                        torch.Tensor([1, 0, 0, 0])
+                        .expand(rotations.shape[0], rotations.shape[1], 4)
+                        .to(rotations.device)
+                    )
 
-    skeleton_mocap.remove_joints([5,10,16,21,26])
-    os.system('conda deactivate')
-    os.system('conda activate mobet')
-    # from npybvh.bvh import Bvh
-    # anim = Bvh()
-    # anim.parse_file('D:\\ubisoft-laforge-animation-dataset\\lafan1\\lafan1\\aiming1_subject1.bvh')
-    
-    # for t in range(65):
-    #     positions, rotations = anim.frame_pose(t)
-    #     want_idx = [0,1,2,3,4,\
-    #                 6,7,8,9,\
-    #                 11,12,13,14,15,\
-    #                 17,18,19,20,\
-    #                 22,23,24,25]
-    #     positions = positions[want_idx]
-    #     print(positions[0])
+        return torch.stack(positions_world, dim=3).permute(0, 1, 3, 2), torch.stack(
+            rotations_world, dim=3
+        ).permute(0, 1, 3, 2)
 
-    lafan_data = LaFan1('D:\\ubisoft-laforge-animation-dataset\\lafan1\\lafan1', train = False, debug=False)
-    lafan_loader = DataLoader(lafan_data, batch_size=32, shuffle=False, num_workers=4)
-    for i_batch, sample_batched in enumerate(lafan_loader):
-        pos_batch = skeleton_mocap.forward_kinematics(sample_batched['local_q'], sample_batched['root_p'])
-        # print(pos_batch[0,:,0].cpu().numpy())
-        # break
-        
+
+    def convert_to_global_pos(self, unit_vec_rerp):
+        """
+        Convert the unit offset matrix to global position.
+        First row(root) will have absolute position value in global coordinates.
+        """
+        bone_length = self.get_bone_length_weight()
+        batch_size = unit_vec_rerp.size(0)
+        seq_len = unit_vec_rerp.size(1)
+        unit_vec_table = unit_vec_rerp.reshape(batch_size, seq_len, 22, 3)
+        global_position = torch.zeros_like(unit_vec_table, device=unit_vec_table.device)
+
+        for i, parent in enumerate(self._parents):
+            if parent == -1:  # if root
+                global_position[:, :, i] = unit_vec_table[:, :, i]
+
+            else:
+                global_position[:, :, i] = global_position[:, :, parent] + (
+                    nn.functional.normalize(unit_vec_table[:, :, i], p=2.0, dim=-1)
+                    * bone_length[i]
+                )
+
+        return global_position
+
+    def convert_to_unit_offset_mat(self, global_position):
+        """
+        Convert the global position of the skeleton to a unit offset matrix.
+        First row(root) will have absolute position value in global coordinates.
+        """
+
+        bone_length = self.get_bone_length_weight()
+        unit_offset_mat = torch.zeros_like(
+            global_position, device=global_position.device
+        )
+
+        for i, parent in enumerate(self._parents):
+
+            if parent == -1:  # if root
+                unit_offset_mat[:, :, i] = global_position[:, :, i]
+            else:
+                unit_offset_mat[:, :, i] = (
+                    global_position[:, :, i] - global_position[:, :, parent]
+                ) / bone_length[i]
+
+        return unit_offset_mat

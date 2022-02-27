@@ -50,8 +50,8 @@ class LaFan1(Dataset):
         # Global positions stats:
         x_mean = np.mean(x_glbl.reshape([x_glbl.shape[0], x_glbl.shape[1], -1]).transpose([0, 2, 1]), axis=(0, 2), keepdims=True)
         x_std = np.std(x_glbl.reshape([x_glbl.shape[0], x_glbl.shape[1], -1]).transpose([0, 2, 1]), axis=(0, 2), keepdims=True)
-        x_mean_local = np.mean(X.reshape([x_glbl.shape[0], x_glbl.shape[1], -1]).transpose([0, 2, 1]), axis=(0, 2), keepdims=True)
-        x_std_local = np.std(X.reshape([x_glbl.shape[0], x_glbl.shape[1], -1]).transpose([0, 2, 1]), axis=(0, 2), keepdims=True)
+        x_mean_local = np.mean(X.reshape([X.shape[0], X.shape[1], -1]).transpose([0, 2, 1]), axis=(0, 2), keepdims=True)
+        x_std_local = np.std(X.reshape([X.shape[0], X.shape[1], -1]).transpose([0, 2, 1]), axis=(0, 2), keepdims=True)
         self.x_mean_local = torch.from_numpy(x_mean_local)
         self.x_std_local = torch.from_numpy(x_std_local)
         self.x_mean = torch.from_numpy(x_mean)
