@@ -4,6 +4,6 @@ This is unofficial implemtation of the paper "Single-Shot Motion Completion with
 
 ```python train_gobal.py```
 
-In each epoch, we constinous to interal 5 times  
+In each epoch, we continue to iterate over each batch 5 times.
 
 
